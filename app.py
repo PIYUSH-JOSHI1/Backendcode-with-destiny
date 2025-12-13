@@ -26,8 +26,24 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# Enable CORS (allow requests from frontend)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# ✅ FIXED: Enable CORS with explicit origins
+CORS(app, 
+    resources={
+        r"/api/*": {
+            "origins": [
+                "https://destinycode.netlify.app",
+                "http://localhost:3000",
+                "http://localhost:5000",
+                "https://piyush-joshi1.github.io"
+            ],
+            "methods": ["GET", "POST", "OPTIONS"],
+            "allow_headers": ["Content-Type"],
+            "supports_credentials": True,
+            "max_age": 3600
+        }
+    },
+    expose_headers=["Content-Type"]
+)
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(
