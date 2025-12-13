@@ -3,11 +3,21 @@ Code with Destiny - Book Purchase Backend
 Production-level Flask API for Razorpay payment processing
 """
 
-import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import razorpay
+import os
+import json
+import hashlib
+import hmac
 from dotenv import load_dotenv
+import requests
+from datetime import datetime  # ✅ Import datetime class directly
+import time
+import sqlite3
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Load environment variables
 load_dotenv()
@@ -16,31 +26,12 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# ✅ CRITICAL: Fix CORS for production
-CORS(app, resources={
-    r"/api/*": {
-        "origins": [
-            "https://piyush-joshi1.github.io",  # ✅ Your GitHub Pages URL
-            "http://localhost:3000",             # ✅ Local development
-            "http://localhost:5000"              # ✅ Local Flask dev
-        ],
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"],
-        "supports_credentials": True,
-        "max_age": 3600
-    }
-})
-
-# Production config
-app.config['ENV'] = os.getenv('FLASK_ENV', 'production')
-app.config['DEBUG'] = False
+# Enable CORS (allow requests from frontend)
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(
-    auth=(
-        os.getenv('RAZORPAY_KEY_ID'),
-        os.getenv('RAZORPAY_KEY_SECRET')
-    )
+    auth=(os.getenv('RAZORPAY_KEY_ID'), os.getenv('RAZORPAY_KEY_SECRET'))
 )
 
 # Database setup
@@ -288,7 +279,7 @@ def create_order():
         
         # If amount is 0, don't create Razorpay order
         if amount == 0:
-            order_id = f"FREE-{int(datetime.now().timestamp())}"
+            order_id = f"FREE-{int(time.time())}"  # ✅ Use time module instead
             
             # Insert into database
             if insert_order(order_id, name, email, whatsapp, 0):
@@ -547,5 +538,4 @@ if __name__ == '__main__':
     print('🚀 Starting Code with Destiny Backend...')
     print(f'🔑 Razorpay Key ID: {os.getenv("RAZORPAY_KEY_ID")}')
     print('💻 Server running on http://localhost:5000')
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(debug=True, host='0.0.0.0', port=5000)
