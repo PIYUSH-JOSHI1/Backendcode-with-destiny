@@ -16,19 +16,24 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# CORS Configuration for production
-FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
+# ✅ CRITICAL: Fix CORS for production
 CORS(app, resources={
     r"/api/*": {
-        "origins": [FRONTEND_URL, "http://localhost:3000"],
+        "origins": [
+            "https://piyush-joshi1.github.io",  # ✅ Your GitHub Pages URL
+            "http://localhost:3000",             # ✅ Local development
+            "http://localhost:5000"              # ✅ Local Flask dev
+        ],
         "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
+        "allow_headers": ["Content-Type"],
+        "supports_credentials": True,
+        "max_age": 3600
     }
 })
 
 # Production config
-app.config['ENV'] = os.getenv('FLASK_ENV', 'development')
-app.config['DEBUG'] = os.getenv('FLASK_DEBUG', 'False') == 'True'
+app.config['ENV'] = os.getenv('FLASK_ENV', 'production')
+app.config['DEBUG'] = False
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(
@@ -542,7 +547,5 @@ if __name__ == '__main__':
     print('🚀 Starting Code with Destiny Backend...')
     print(f'🔑 Razorpay Key ID: {os.getenv("RAZORPAY_KEY_ID")}')
     print('💻 Server running on http://localhost:5000')
-    # Production: use gunicorn (Render uses this)
-    # Development: use Flask dev server
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
