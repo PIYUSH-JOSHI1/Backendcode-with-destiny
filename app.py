@@ -26,19 +26,24 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# ✅ FIXED: Enable CORS with explicit origins
+# ✅ FIXED: Update CORS origins to match your current URL
 CORS(app, 
     resources={
         r"/api/*": {
             "origins": [
-                "https://destinycode4u.netlify.app",  # ✅ ADD THIS - Your new Vercel URL
-                "https://destinycode.netlify.app",   # Keep old one if still needed
+                "https://destinycode4u.netlify.app",  # ✅ Updated to match your current URL
                 "http://localhost:3000",
                 "http://localhost:5000",
                 "https://piyush-joshi1.github.io"
             ],
-            "methods": ["GET", "POST", "OPTIONS"],
-            "allow_headers": ["Content-Type"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # ✅ Added missing methods
+            "allow_headers": [
+                "Content-Type", 
+                "Authorization", 
+                "X-Requested-With",
+                "Accept",
+                "Origin"
+            ],  # ✅ Enhanced headers for better compatibility
             "supports_credentials": True,
             "max_age": 3600
         }
@@ -556,4 +561,3 @@ if __name__ == '__main__':
     print(f'🔑 Razorpay Key ID: {os.getenv("RAZORPAY_KEY_ID")}')
     print('💻 Server running on http://localhost:5000')
     app.run(debug=True, host='0.0.0.0', port=5000)
-
