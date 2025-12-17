@@ -27,11 +27,11 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# ✅ CORS Configuration - Fixed with credentials support
+# ✅ ONLY THIS CORS CONFIGURATION - NO MANUAL HANDLERS
 CORS(app,
     resources={r"/api/*": {
         "origins": [
-            "https://destinycode4u.vercel.app",  # ✅ REMOVED trailing slash
+            "https://destinycode4u.vercel.app",
             "http://localhost:3000",
             "http://localhost:5000",
             "http://localhost:3002",
@@ -47,61 +47,7 @@ CORS(app,
     intercept_exceptions=False
 )
 
-# ✅ Add manual CORS headers for all responses (prevent duplicates)
-@app.after_request
-def after_request(response):
-    origin = request.headers.get('Origin')
-    allowed_origins = [
-        "https://destinycode4u.vercel.app",  # ✅ REMOVED trailing slash
-        "http://localhost:3000",
-        "http://localhost:5000",
-        "http://localhost:3002",
-        "https://piyush-joshi1.github.io"
-    ]
-    
-    # Only add headers if origin is allowed AND headers don't exist
-    if origin in allowed_origins and request.method != 'OPTIONS':
-        if 'Access-Control-Allow-Origin' not in response.headers:
-            response.headers.add('Access-Control-Allow-Origin', origin)
-        if 'Access-Control-Allow-Credentials' not in response.headers:
-            response.headers.add('Access-Control-Allow-Credentials', 'true')
-    
-    # Ensure Content-Type is set
-    if 'Content-Type' not in response.headers:
-        response.headers.add('Content-Type', 'application/json')
-    
-    return response
-
-# ✅ FIXED: Handle preflight requests with proper CORS headers
-@app.before_request
-def handle_preflight():
-    if request.method == 'OPTIONS':
-        print(f'📋 OPTIONS preflight request to {request.path}')
-        
-        # Get the origin from request headers
-        origin = request.headers.get('Origin')
-        allowed_origins = [
-            "https://destinycode4u.vercel.app",
-            "http://localhost:3000",
-            "http://localhost:5000",
-            "http://localhost:3002",
-            "https://piyush-joshi1.github.io"
-        ]
-        
-        # Create response with proper CORS headers
-        response = jsonify({'status': 'ok'})
-        
-        # Add CORS headers for preflight
-        if origin in allowed_origins:
-            response.headers.add('Access-Control-Allow-Origin', origin)
-            response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
-            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
-            response.headers.add('Access-Control-Allow-Credentials', 'true')
-            response.headers.add('Access-Control-Max-Age', '86400')
-        
-        return response, 200
-
-# Initialize Razorpay client
+# ✅ Initialize Razorpay directly after CORS
 razorpay_client = razorpay.Client(
     auth=(os.getenv('RAZORPAY_KEY_ID'), os.getenv('RAZORPAY_KEY_SECRET'))
 )
