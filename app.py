@@ -36,14 +36,19 @@ CORS(app,
                 "http://localhost:5000",
                 "https://piyush-joshi1.github.io"
             ],
-            "methods": ["GET", "POST", "OPTIONS"],
-            "allow_headers": ["Content-Type"],
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
             "supports_credentials": True,
             "max_age": 3600
         }
     },
     expose_headers=["Content-Type"]
 )
+
+# Add request logging
+@app.before_request
+def log_request():
+    print(f'📨 {request.method} {request.path} from {request.remote_addr}')
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(
@@ -299,9 +304,27 @@ def create_order():
             
             # Insert into database
             if insert_order(order_id, name, email, whatsapp, 0):
+                # ✅ Send email immediately for free orders
+                drive_link = os.getenv('BOOK_DRIVE_LINK', 'https://drive.google.com/file/d/1lBH-fdCcyfp6_ZUpph6nviZklm5d3Mwt/view?usp=drive_link')
+                email_subject = '🎉 Code with Destiny - Your Free Access is Ready!'
+                email_message = f'''
+                Hello {name},
+                
+                Thank you for getting your free copy of "Code with Destiny"!
+                
+                Your book access is now active. Download it using the link in this email.
+                
+                Order Details:
+                - Order ID: {order_id}
+                - Status: ✅ Active
+                - Access Type: Free
+                '''
+                
+                send_email(email, email_subject, email_message, drive_link=drive_link)
+                
                 return jsonify({
                     'status': 'success',
-                    'message': 'Free order created',
+                    'message': 'Free book access created. Email sent!',
                     'order_id': order_id,
                     'amount': 0,
                     'is_free': True
@@ -351,7 +374,7 @@ def create_order():
             'message': f'Server error: {str(e)}'
         }), 500
 
-@app.route('/api/payments/verify', methods=['POST'])
+@app.route('/api/payments/verify', methods=['POST', 'OPTIONS'])
 def verify_payment():
     """
     Verify Razorpay payment signature
@@ -365,6 +388,8 @@ def verify_payment():
     }
     """
     try:
+        print('🔐 Payment verification request received')
+        
         data = request.get_json()
         
         razorpay_order_id = data.get('razorpay_order_id')
@@ -372,7 +397,10 @@ def verify_payment():
         razorpay_signature = data.get('razorpay_signature')
         our_order_id = data.get('order_id')
         
+        print(f'📊 Verification data: order_id={our_order_id}, payment_id={razorpay_payment_id}')
+        
         if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature, our_order_id]):
+            print('❌ Missing verification data')
             return jsonify({
                 'status': 'error',
                 'message': 'Missing payment verification data'
@@ -386,7 +414,11 @@ def verify_payment():
             hashlib.sha256
         ).hexdigest()
         
+        print(f'🔍 Signature verification: expected={expected_signature[:10]}..., received={razorpay_signature[:10]}...')
+        
         if expected_signature == razorpay_signature:
+            print('✅ Signature verified successfully')
+            
             # Payment verified successfully
             update_order_payment(our_order_id, razorpay_payment_id, 'paid')
             
@@ -394,6 +426,8 @@ def verify_payment():
             order = get_order(our_order_id)
             
             if order:
+                print(f'📧 Sending confirmation email to: {order["user_email"]}')
+                
                 # Google Drive link to your book
                 drive_link = os.getenv('BOOK_DRIVE_LINK', 'https://drive.google.com/file/d/1lBH-fdCcyfp6_ZUpph6nviZklm5d3Mwt/view?usp=drive_link')
                 
@@ -409,7 +443,12 @@ def verify_payment():
                 - Status: ✅ PAID
                 '''
                 
-                send_email(order['user_email'], email_subject, email_message, drive_link=drive_link)
+                email_sent = send_email(order['user_email'], email_subject, email_message, drive_link=drive_link)
+                
+                if email_sent:
+                    print(f'✅ Confirmation email sent to {order["user_email"]}')
+                else:
+                    print(f'⚠️ Email sending failed, but payment verified')
             
             return jsonify({
                 'status': 'success',
@@ -419,6 +458,7 @@ def verify_payment():
             })
         else:
             # Signature verification failed
+            print('❌ Signature verification failed')
             return jsonify({
                 'status': 'error',
                 'message': 'Payment verification failed - Invalid signature'
@@ -426,6 +466,8 @@ def verify_payment():
     
     except Exception as e:
         print(f'❌ Payment verification error: {e}')
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'status': 'error',
             'message': f'Verification error: {str(e)}'
