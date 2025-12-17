@@ -31,7 +31,7 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-pro
 CORS(app,
     resources={r"/api/*": {
         "origins": [
-            "https://destinycode4u.vercel.app",
+            "https://destinycode4u.vercel.app",  # ✅ REMOVED trailing slash
             "http://localhost:3000",
             "http://localhost:5000",
             "http://localhost:3002",
@@ -52,43 +52,54 @@ CORS(app,
 def after_request(response):
     origin = request.headers.get('Origin')
     allowed_origins = [
-        "https://destinycode4u.vercel.app",
+        "https://destinycode4u.vercel.app",  # ✅ REMOVED trailing slash
         "http://localhost:3000",
         "http://localhost:5000",
         "http://localhost:3002",
         "https://piyush-joshi1.github.io"
     ]
     
-    if origin in allowed_origins:
-        # Only add headers if they don't already exist (prevent duplicates)
+    # Only add headers if origin is allowed AND headers don't exist
+    if origin in allowed_origins and request.method != 'OPTIONS':
         if 'Access-Control-Allow-Origin' not in response.headers:
             response.headers.add('Access-Control-Allow-Origin', origin)
         if 'Access-Control-Allow-Credentials' not in response.headers:
             response.headers.add('Access-Control-Allow-Credentials', 'true')
-        if 'Access-Control-Allow-Headers' not in response.headers:
-            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
-        if 'Access-Control-Allow-Methods' not in response.headers:
-            response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
     
-    # Set Content-Type for all responses
+    # Ensure Content-Type is set
     if 'Content-Type' not in response.headers:
         response.headers.add('Content-Type', 'application/json')
     
     return response
 
-# ✅ Handle preflight requests (OPTIONS) BEFORE other handlers
+# ✅ FIXED: Handle preflight requests with proper CORS headers
 @app.before_request
 def handle_preflight():
     if request.method == 'OPTIONS':
         print(f'📋 OPTIONS preflight request to {request.path}')
+        
+        # Get the origin from request headers
+        origin = request.headers.get('Origin')
+        allowed_origins = [
+            "https://destinycode4u.vercel.app",
+            "http://localhost:3000",
+            "http://localhost:5000",
+            "http://localhost:3002",
+            "https://piyush-joshi1.github.io"
+        ]
+        
+        # Create response with proper CORS headers
         response = jsonify({'status': 'ok'})
+        
+        # Add CORS headers for preflight
+        if origin in allowed_origins:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+            response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+            response.headers.add('Access-Control-Allow-Credentials', 'true')
+            response.headers.add('Access-Control-Max-Age', '86400')
+        
         return response, 200
-
-# Add request logging (skip OPTIONS)
-@app.before_request
-def log_request():
-    if request.method != 'OPTIONS':
-        print(f'📨 {request.method} {request.path} from {request.remote_addr}')
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(
@@ -633,5 +644,4 @@ if __name__ == '__main__':
     print(f'🔑 Razorpay Key ID: {os.getenv("RAZORPAY_KEY_ID")}')
     print('💻 Server running on http://localhost:5000')
     app.run(debug=True, host='0.0.0.0', port=5000)
-
 
