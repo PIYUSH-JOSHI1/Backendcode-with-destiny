@@ -3,6 +3,7 @@ Code with Destiny - Book Purchase Backend
 Production-level Flask API for Razorpay payment processing
 """
 
+import threading
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import razorpay
@@ -12,7 +13,7 @@ import hashlib
 import hmac
 from dotenv import load_dotenv
 import requests
-from datetime import datetime  # ✅ Import datetime class directly
+from datetime import datetime
 import time
 import sqlite3
 import smtplib
@@ -26,24 +27,68 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# ✅ FIXED: Enable CORS with explicit origins
-CORS(app, 
-    resources={
-        r"/api/*": {
-            "origins": [
-                "https://destinycode.netlify.app",
-                "http://localhost:3000",
-                "http://localhost:5000",
-                "https://piyush-joshi1.github.io"
-            ],
-            "methods": ["GET", "POST", "OPTIONS"],
-            "allow_headers": ["Content-Type"],
-            "supports_credentials": True,
-            "max_age": 3600
-        }
-    },
-    expose_headers=["Content-Type"]
+# ✅ CORS Configuration - Fixed with credentials support
+CORS(app,
+    resources={r"/api/*": {
+        "origins": [
+            "https://destinycode.netlify.app",
+            "http://localhost:3000",
+            "http://localhost:5000",
+            "http://localhost:3002",
+            "https://piyush-joshi1.github.io"
+        ],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+        "supports_credentials": True,
+        "max_age": 86400,
+        "send_wildcard": False
+    }},
+    expose_headers=["Content-Type"],
+    intercept_exceptions=False
 )
+
+# ✅ Add manual CORS headers for all responses (prevent duplicates)
+@app.after_request
+def after_request(response):
+    origin = request.headers.get('Origin')
+    allowed_origins = [
+        "https://destinycode.netlify.app",
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "http://localhost:3002",
+        "https://piyush-joshi1.github.io"
+    ]
+    
+    if origin in allowed_origins:
+        # Only add headers if they don't already exist (prevent duplicates)
+        if 'Access-Control-Allow-Origin' not in response.headers:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+        if 'Access-Control-Allow-Credentials' not in response.headers:
+            response.headers.add('Access-Control-Allow-Credentials', 'true')
+        if 'Access-Control-Allow-Headers' not in response.headers:
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+        if 'Access-Control-Allow-Methods' not in response.headers:
+            response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+    
+    # Set Content-Type for all responses
+    if 'Content-Type' not in response.headers:
+        response.headers.add('Content-Type', 'application/json')
+    
+    return response
+
+# ✅ Handle preflight requests (OPTIONS) BEFORE other handlers
+@app.before_request
+def handle_preflight():
+    if request.method == 'OPTIONS':
+        print(f'📋 OPTIONS preflight request to {request.path}')
+        response = jsonify({'status': 'ok'})
+        return response, 200
+
+# Add request logging (skip OPTIONS)
+@app.before_request
+def log_request():
+    if request.method != 'OPTIONS':
+        print(f'📨 {request.method} {request.path} from {request.remote_addr}')
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(
@@ -230,6 +275,17 @@ def send_email(recipient_email, subject, message, drive_link=None):
         print(f'❌ Email error: {e}')
         return False
 
+def send_email_async(recipient_email, subject, message, drive_link=None):
+    """Send email in background thread (non-blocking)"""
+    def _send():
+        try:
+            send_email(recipient_email, subject, message, drive_link)
+        except Exception as e:
+            print(f'❌ Async email error: {e}')
+    
+    thread = threading.Thread(target=_send, daemon=True)
+    thread.start()
+
 # ==================== API Routes ====================
 
 @app.route('/')
@@ -250,7 +306,7 @@ def health_check():
         'timestamp': datetime.now().isoformat()
     })
 
-@app.route('/api/orders/create', methods=['POST'])
+@app.route('/api/orders/create', methods=['POST', 'OPTIONS'])
 def create_order():
     """
     Create a new Razorpay order
@@ -264,6 +320,17 @@ def create_order():
     }
     """
     try:
+        # Handle preflight
+        if request.method == 'OPTIONS':
+            return '', 200
+        
+        # Ensure we have JSON data
+        if not request.is_json:
+            return jsonify({
+                'status': 'error',
+                'message': 'Content-Type must be application/json'
+            }), 415
+        
         data = request.get_json()
         
         # Validate input
@@ -299,9 +366,27 @@ def create_order():
             
             # Insert into database
             if insert_order(order_id, name, email, whatsapp, 0):
+                # ✅ Send email immediately for free orders
+                drive_link = os.getenv('BOOK_DRIVE_LINK', 'https://drive.google.com/file/d/1lBH-fdCcyfp6_ZUpph6nviZklm5d3Mwt/view?usp=drive_link')
+                email_subject = '🎉 Code with Destiny - Your Free Access is Ready!'
+                email_message = f'''
+                Hello {name},
+                
+                Thank you for getting your free copy of "Code with Destiny"!
+                
+                Your book access is now active. Download it using the link in this email.
+                
+                Order Details:
+                - Order ID: {order_id}
+                - Status: ✅ Active
+                - Access Type: Free
+                '''
+                
+                send_email(email, email_subject, email_message, drive_link=drive_link)
+                
                 return jsonify({
                     'status': 'success',
-                    'message': 'Free order created',
+                    'message': 'Free book access created. Email sent!',
                     'order_id': order_id,
                     'amount': 0,
                     'is_free': True
@@ -397,7 +482,7 @@ def verify_payment():
                 # Google Drive link to your book
                 drive_link = os.getenv('BOOK_DRIVE_LINK', 'https://drive.google.com/file/d/1lBH-fdCcyfp6_ZUpph6nviZklm5d3Mwt/view?usp=drive_link')
                 
-                # Send confirmation email with drive link
+                # Send confirmation email ASYNCHRONOUSLY (non-blocking)
                 email_subject = '🎉 Code with Destiny - Your Book is Ready!'
                 email_message = f'''
                 Thank you {order['user_name']} for purchasing "Code with Destiny"!
@@ -409,7 +494,7 @@ def verify_payment():
                 - Status: ✅ PAID
                 '''
                 
-                send_email(order['user_email'], email_subject, email_message, drive_link=drive_link)
+                send_email_async(order['user_email'], email_subject, email_message, drive_link=drive_link)
             
             return jsonify({
                 'status': 'success',
@@ -533,13 +618,6 @@ def send_book():
         }), 500
 
 # ==================== Error Handlers ====================
-
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({
-        'status': 'error',
-        'message': 'Endpoint not found'
-    }), 404
 
 @app.errorhandler(500)
 def internal_error(error):
