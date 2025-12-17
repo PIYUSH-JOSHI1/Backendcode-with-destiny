@@ -3,7 +3,7 @@ Code with Destiny - Book Purchase Backend
 Production-level Flask API for Razorpay payment processing
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, make_response
 from flask_cors import CORS
 import razorpay
 import os
@@ -26,29 +26,64 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# ✅ FIXED: Enable CORS with explicit origins
-CORS(app, 
-    resources={
-        r"/api/*": {
-            "origins": [
-                "https://destinycode.netlify.app",
-                "http://localhost:3000",
-                "http://localhost:5000",
-                "https://piyush-joshi1.github.io"
-            ],
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
-            "supports_credentials": True,
-            "max_age": 3600
-        }
-    },
-    expose_headers=["Content-Type"]
+# ✅ ENHANCED CORS Configuration - More robust
+CORS(app,
+    resources={r"/api/*": {
+        "origins": [
+            "https://destinycode.netlify.app",
+            "http://localhost:3000",
+            "http://localhost:5000",
+            "http://localhost:3002",
+            "https://piyush-joshi1.github.io"
+        ],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
+        "supports_credentials": True,
+        "max_age": 86400,
+        "send_wildcard": False
+    }},
+    expose_headers=["Content-Type"],
+    intercept_exceptions=False
 )
+
+# ✅ Additional CORS headers for all responses
+@app.after_request
+def after_request(response):
+    origin = request.headers.get('Origin')
+    allowed_origins = [
+        "https://destinycode.netlify.app",
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "http://localhost:3002",
+        "https://piyush-joshi1.github.io"
+    ]
+    
+    if origin in allowed_origins:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+        response.headers.add('Access-Control-Expose-Headers', 'Content-Type')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+    
+    return response
+
+# ✅ Handle preflight requests (OPTIONS)
+@app.before_request
+def handle_preflight():
+    if request.method == 'OPTIONS':
+        response = make_response('', 204)
+        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin', '*'))
+        response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Max-Age', '86400')
+        return response
 
 # Add request logging
 @app.before_request
 def log_request():
-    print(f'📨 {request.method} {request.path} from {request.remote_addr}')
+    if request.method != 'OPTIONS':
+        print(f'📨 {request.method} {request.path} from {request.remote_addr}')
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(
@@ -374,7 +409,7 @@ def create_order():
             'message': f'Server error: {str(e)}'
         }), 500
 
-@app.route('/api/payments/verify', methods=['POST', 'OPTIONS'])
+@app.route('/api/payments/verify', methods=['POST'])
 def verify_payment():
     """
     Verify Razorpay payment signature
