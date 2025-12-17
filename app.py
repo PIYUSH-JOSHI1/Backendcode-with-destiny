@@ -51,6 +51,55 @@ CORS(app,
     expose_headers=["Content-Type"]
 )
 
+# Enhanced CORS handling
+@app.after_request
+def after_request(response):
+    """Add CORS headers to all responses"""
+    origin = request.headers.get('Origin')
+    allowed_origins = [
+        "https://destinycode4u.netlify.app",
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "https://piyush-joshi1.github.io"
+    ]
+    
+    if origin in allowed_origins:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+        response.headers.add('Access-Control-Allow-Headers', 
+                           'Content-Type,Authorization,X-Requested-With,Accept,Origin')
+        response.headers.add('Access-Control-Allow-Methods', 
+                           'GET,POST,PUT,DELETE,OPTIONS')
+    
+    # Ensure Content-Type is set
+    if 'Content-Type' not in response.headers:
+        response.headers.add('Content-Type', 'application/json')
+    
+    return response
+
+@app.before_request
+def handle_preflight():
+    """Handle OPTIONS requests for CORS preflight"""
+    if request.method == 'OPTIONS':
+        origin = request.headers.get('Origin')
+        allowed_origins = [
+            "https://destinycode4u.netlify.app",
+            "http://localhost:3000",
+            "http://localhost:5000",
+            "https://piyush-joshi1.github.io"
+        ]
+        
+        if origin in allowed_origins:
+            response = jsonify({'status': 'ok'})
+            response.headers.add('Access-Control-Allow-Origin', origin)
+            response.headers.add('Access-Control-Allow-Methods', 
+                               'GET,POST,PUT,DELETE,OPTIONS')
+            response.headers.add('Access-Control-Allow-Headers', 
+                               'Content-Type,Authorization,X-Requested-With,Accept,Origin')
+            response.headers.add('Access-Control-Allow-Credentials', 'true')
+            response.headers.add('Access-Control-Max-Age', '3600')
+            return response
+
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(
     auth=(os.getenv('RAZORPAY_KEY_ID'), os.getenv('RAZORPAY_KEY_SECRET'))
@@ -247,13 +296,18 @@ def home():
         'version': '1.0.0'
     })
 
-@app.route('/api/health', methods=['GET'])
+@app.route('/api/health', methods=['GET', 'OPTIONS'])
 def health_check():
-    """API health check"""
+    """API health check with CORS support"""
+    if request.method == 'OPTIONS':
+        return jsonify({'status': 'ok'})
+        
     return jsonify({
         'status': 'success',
         'message': 'API is running',
-        'timestamp': datetime.now().isoformat()
+        'timestamp': datetime.now().isoformat(),
+        'cors_enabled': True,
+        'razorpay_configured': bool(os.getenv('RAZORPAY_KEY_ID'))
     })
 
 @app.route('/api/orders/create', methods=['POST'])
@@ -357,10 +411,10 @@ def create_order():
             'message': f'Server error: {str(e)}'
         }), 500
 
-@app.route('/api/payments/verify', methods=['POST'])
+@app.route('/api/payments/verify', methods=['POST', 'OPTIONS'])
 def verify_payment():
     """
-    Verify Razorpay payment signature
+    Verify Razorpay payment signature with enhanced error handling
     
     Request body:
     {
@@ -371,17 +425,40 @@ def verify_payment():
     }
     """
     try:
+        # Handle preflight OPTIONS request
+        if request.method == 'OPTIONS':
+            return jsonify({'status': 'ok'}), 200
+            
         data = request.get_json()
+        
+        if not data:
+            return jsonify({
+                'status': 'error',
+                'message': 'No JSON data received',
+                'success': False
+            }), 400
         
         razorpay_order_id = data.get('razorpay_order_id')
         razorpay_payment_id = data.get('razorpay_payment_id')
         razorpay_signature = data.get('razorpay_signature')
         our_order_id = data.get('order_id')
         
+        print(f'🔐 Payment verification request:')
+        print(f'   Order ID: {razorpay_order_id}')
+        print(f'   Payment ID: {razorpay_payment_id}')
+        print(f'   Our Order: {our_order_id}')
+        
         if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature, our_order_id]):
+            missing_fields = []
+            if not razorpay_order_id: missing_fields.append('razorpay_order_id')
+            if not razorpay_payment_id: missing_fields.append('razorpay_payment_id')
+            if not razorpay_signature: missing_fields.append('razorpay_signature')
+            if not our_order_id: missing_fields.append('order_id')
+            
             return jsonify({
                 'status': 'error',
-                'message': 'Missing payment verification data'
+                'message': f'Missing required fields: {", ".join(missing_fields)}',
+                'success': False
             }), 400
         
         # Verify signature
@@ -393,48 +470,80 @@ def verify_payment():
         ).hexdigest()
         
         if expected_signature == razorpay_signature:
-            # Payment verified successfully
-            update_order_payment(our_order_id, razorpay_payment_id, 'paid')
+            print('✅ Payment signature verified successfully')
             
-            # Get order details
-            order = get_order(our_order_id)
+            # Update order status
+            update_success = update_order_payment(our_order_id, razorpay_payment_id, 'paid')
             
-            if order:
-                # Google Drive link to your book
-                drive_link = os.getenv('BOOK_DRIVE_LINK', 'https://drive.google.com/file/d/1lBH-fdCcyfp6_ZUpph6nviZklm5d3Mwt/view?usp=drive_link')
+            if update_success:
+                # Get order details
+                order = get_order(our_order_id)
                 
-                # Send confirmation email with drive link
-                email_subject = '🎉 Code with Destiny - Your Book is Ready!'
-                email_message = f'''
-                Thank you {order['user_name']} for purchasing "Code with Destiny"!
+                if order:
+                    # Send confirmation email asynchronously (non-blocking)
+                    import threading
+                    
+                    def send_confirmation_email():
+                        try:
+                            drive_link = os.getenv('BOOK_DRIVE_LINK', 'https://drive.google.com/file/d/1lBH-fdCcyfp6_ZUpph6nviZklm5d3Mwt/view?usp=drive_link')
+                            
+                            email_subject = '🎉 Code with Destiny - Your Book is Ready!'
+                            email_message = f'''
+                            Thank you {order['user_name']} for purchasing "Code with Destiny"!
+                            
+                            Payment Details:
+                            - Order ID: {our_order_id}
+                            - Amount: ₹{order['amount']}
+                            - Payment ID: {razorpay_payment_id}
+                            - Status: ✅ PAID
+                            '''
+                            
+                            send_email(order['user_email'], email_subject, email_message, drive_link=drive_link)
+                            print(f'✅ Confirmation email sent to {order["user_email"]}')
+                            
+                        except Exception as e:
+                            print(f'❌ Email sending error: {e}')
+                    
+                    # Send email in background thread (non-blocking)
+                    email_thread = threading.Thread(target=send_confirmation_email)
+                    email_thread.daemon = True
+                    email_thread.start()
                 
-                Payment Details:
-                - Order ID: {our_order_id}
-                - Amount: ₹{order['amount']}
-                - Payment ID: {razorpay_payment_id}
-                - Status: ✅ PAID
-                '''
+                # Return success response immediately
+                response_data = {
+                    'status': 'success',
+                    'message': 'Payment verified successfully',
+                    'payment_id': razorpay_payment_id,
+                    'order_id': our_order_id,
+                    'success': True  # Critical for frontend handling
+                }
                 
-                send_email(order['user_email'], email_subject, email_message, drive_link=drive_link)
-            
-            return jsonify({
-                'status': 'success',
-                'message': 'Payment verified successfully',
-                'payment_id': razorpay_payment_id,
-                'order_id': our_order_id
-            })
+                print(f'✅ Sending success response: {response_data}')
+                return jsonify(response_data), 200
+                
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'Payment verified but failed to update order',
+                    'success': False
+                }), 500
         else:
-            # Signature verification failed
+            print('❌ Payment signature verification failed')
             return jsonify({
                 'status': 'error',
-                'message': 'Payment verification failed - Invalid signature'
+                'message': 'Payment verification failed - Invalid signature',
+                'success': False
             }), 400
     
     except Exception as e:
         print(f'❌ Payment verification error: {e}')
+        import traceback
+        traceback.print_exc()
+        
         return jsonify({
             'status': 'error',
-            'message': f'Verification error: {str(e)}'
+            'message': f'Verification error: {str(e)}',
+            'success': False
         }), 500
 
 @app.route('/api/orders/<order_id>', methods=['GET'])
