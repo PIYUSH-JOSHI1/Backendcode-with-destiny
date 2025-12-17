@@ -12,7 +12,7 @@ import hashlib
 import hmac
 from dotenv import load_dotenv
 import requests
-from datetime import datetime  # ✅ Import datetime class directly
+from datetime import datetime
 import time
 import sqlite3
 import smtplib
@@ -26,7 +26,7 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# ✅ CORS Configuration - Simple and clean
+# ✅ CORS Configuration - Fixed with credentials support
 CORS(app,
     resources={r"/api/*": {
         "origins": [
@@ -46,11 +46,42 @@ CORS(app,
     intercept_exceptions=False
 )
 
-# ✅ Handle preflight requests (OPTIONS) - Simple approach
+# ✅ Add manual CORS headers for all responses (prevent duplicates)
+@app.after_request
+def after_request(response):
+    origin = request.headers.get('Origin')
+    allowed_origins = [
+        "https://destinycode.netlify.app",
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "http://localhost:3002",
+        "https://piyush-joshi1.github.io"
+    ]
+    
+    if origin in allowed_origins:
+        # Only add headers if they don't already exist (prevent duplicates)
+        if 'Access-Control-Allow-Origin' not in response.headers:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+        if 'Access-Control-Allow-Credentials' not in response.headers:
+            response.headers.add('Access-Control-Allow-Credentials', 'true')
+        if 'Access-Control-Allow-Headers' not in response.headers:
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+        if 'Access-Control-Allow-Methods' not in response.headers:
+            response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+    
+    # Set Content-Type for all responses
+    if 'Content-Type' not in response.headers:
+        response.headers.add('Content-Type', 'application/json')
+    
+    return response
+
+# ✅ Handle preflight requests (OPTIONS) BEFORE other handlers
 @app.before_request
 def handle_preflight():
     if request.method == 'OPTIONS':
-        return '', 200  # Flask-CORS handles headers, just return 200
+        print(f'📋 OPTIONS preflight request to {request.path}')
+        response = jsonify({'status': 'ok'})
+        return response, 200
 
 # Add request logging (skip OPTIONS)
 @app.before_request
@@ -263,7 +294,7 @@ def health_check():
         'timestamp': datetime.now().isoformat()
     })
 
-@app.route('/api/orders/create', methods=['POST'])
+@app.route('/api/orders/create', methods=['POST', 'OPTIONS'])
 def create_order():
     """
     Create a new Razorpay order
@@ -277,6 +308,17 @@ def create_order():
     }
     """
     try:
+        # Handle preflight
+        if request.method == 'OPTIONS':
+            return '', 200
+        
+        # Ensure we have JSON data
+        if not request.is_json:
+            return jsonify({
+                'status': 'error',
+                'message': 'Content-Type must be application/json'
+            }), 415
+        
         data = request.get_json()
         
         # Validate input
@@ -382,7 +424,7 @@ def create_order():
             'message': f'Server error: {str(e)}'
         }), 500
 
-@app.route('/api/payments/verify', methods=['POST'])
+@app.route('/api/payments/verify', methods=['POST', 'OPTIONS'])
 def verify_payment():
     """
     Verify Razorpay payment signature
@@ -396,9 +438,28 @@ def verify_payment():
     }
     """
     try:
+        # Handle preflight
+        if request.method == 'OPTIONS':
+            return '', 200
+        
         print('🔐 Payment verification request received')
         
+        # Ensure we have JSON data
+        if not request.is_json:
+            print('❌ Request is not JSON')
+            return jsonify({
+                'status': 'error',
+                'message': 'Content-Type must be application/json'
+            }), 415
+        
         data = request.get_json()
+        
+        if not data:
+            print('❌ No JSON data received')
+            return jsonify({
+                'status': 'error',
+                'message': 'No data provided'
+            }), 400
         
         razorpay_order_id = data.get('razorpay_order_id')
         razorpay_payment_id = data.get('razorpay_payment_id')
@@ -463,7 +524,7 @@ def verify_payment():
                 'message': 'Payment verified successfully',
                 'payment_id': razorpay_payment_id,
                 'order_id': our_order_id
-            })
+            }), 200
         else:
             # Signature verification failed
             print('❌ Signature verification failed')
@@ -583,13 +644,6 @@ def send_book():
         }), 500
 
 # ==================== Error Handlers ====================
-
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({
-        'status': 'error',
-        'message': 'Endpoint not found'
-    }), 404
 
 @app.errorhandler(500)
 def internal_error(error):
