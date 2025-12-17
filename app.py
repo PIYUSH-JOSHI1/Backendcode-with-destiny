@@ -27,15 +27,16 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# ✅ ONLY THIS CORS CONFIGURATION - NO MANUAL HANDLERS
+# ✅ CORS Configuration - Fixed with credentials support
 CORS(app,
     resources={r"/api/*": {
         "origins": [
-            "https://destinycode4u.vercel.app",
+            "https://destinycode.netlify.app",
             "http://localhost:3000",
             "http://localhost:5000",
             "http://localhost:3002",
-            "https://piyush-joshi1.github.io"
+            "https://piyush-joshi1.github.io",
+            "https://destinycode4u.vercel.app"  # ✅ Added Vercel domain
         ],
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
@@ -47,7 +48,51 @@ CORS(app,
     intercept_exceptions=False
 )
 
-# ✅ Initialize Razorpay directly after CORS
+# ✅ Add manual CORS headers for all responses (prevent duplicates)
+@app.after_request
+def after_request(response):
+    origin = request.headers.get('Origin')
+    allowed_origins = [
+        "https://destinycode.netlify.app",
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "http://localhost:3002",
+        "https://piyush-joshi1.github.io",
+        "https://destinycode4u.vercel.app"  # ✅ Added Vercel domain
+    ]
+    
+    if origin in allowed_origins:
+        # Only add headers if they don't already exist (prevent duplicates)
+        if 'Access-Control-Allow-Origin' not in response.headers:
+            response.headers.add('Access-Control-Allow-Origin', origin)
+        if 'Access-Control-Allow-Credentials' not in response.headers:
+            response.headers.add('Access-Control-Allow-Credentials', 'true')
+        if 'Access-Control-Allow-Headers' not in response.headers:
+            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
+        if 'Access-Control-Allow-Methods' not in response.headers:
+            response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
+    
+    # Set Content-Type for all responses
+    if 'Content-Type' not in response.headers:
+        response.headers.add('Content-Type', 'application/json')
+    
+    return response
+
+# ✅ Handle preflight requests (OPTIONS) BEFORE other handlers
+@app.before_request
+def handle_preflight():
+    if request.method == 'OPTIONS':
+        print(f'📋 OPTIONS preflight request to {request.path}')
+        response = jsonify({'status': 'ok'})
+        return response, 200
+
+# Add request logging (skip OPTIONS)
+@app.before_request
+def log_request():
+    if request.method != 'OPTIONS':
+        print(f'📨 {request.method} {request.path} from {request.remote_addr}')
+
+# Initialize Razorpay client
 razorpay_client = razorpay.Client(
     auth=(os.getenv('RAZORPAY_KEY_ID'), os.getenv('RAZORPAY_KEY_SECRET'))
 )
@@ -319,11 +364,11 @@ def create_order():
         
         # If amount is 0, don't create Razorpay order
         if amount == 0:
-            order_id = f"FREE-{int(time.time())}"  # ✅ Use time module instead
+            order_id = f"FREE-{int(time.time())}"
             
             # Insert into database
             if insert_order(order_id, name, email, whatsapp, 0):
-                # ✅ Send email immediately for free orders
+                # ✅ CRITICAL FIX: Send email ASYNCHRONOUSLY for free orders
                 drive_link = os.getenv('BOOK_DRIVE_LINK', 'https://drive.google.com/file/d/1lBH-fdCcyfp6_ZUpph6nviZklm5d3Mwt/view?usp=drive_link')
                 email_subject = '🎉 Code with Destiny - Your Free Access is Ready!'
                 email_message = f'''
@@ -339,11 +384,12 @@ def create_order():
                 - Access Type: Free
                 '''
                 
-                send_email(email, email_subject, email_message, drive_link=drive_link)
+                # ✅ Changed from send_email() to send_email_async() to prevent timeout
+                send_email_async(email, email_subject, email_message, drive_link=drive_link)
                 
                 return jsonify({
                     'status': 'success',
-                    'message': 'Free book access created. Email sent!',
+                    'message': 'Free book access created. Email will be sent shortly!',
                     'order_id': order_id,
                     'amount': 0,
                     'is_free': True
@@ -559,11 +605,12 @@ def send_book():
         Code with Destiny Team
         '''
         
-        send_email(email, email_subject, email_message, drive_link=drive_link)
+        # ✅ Use async email here too
+        send_email_async(email, email_subject, email_message, drive_link=drive_link)
         
         return jsonify({
             'status': 'success',
-            'message': 'Book sent successfully',
+            'message': 'Book will be sent shortly',
             'order_id': order_id
         })
     
@@ -590,4 +637,3 @@ if __name__ == '__main__':
     print(f'🔑 Razorpay Key ID: {os.getenv("RAZORPAY_KEY_ID")}')
     print('💻 Server running on http://localhost:5000')
     app.run(debug=True, host='0.0.0.0', port=5000)
-
