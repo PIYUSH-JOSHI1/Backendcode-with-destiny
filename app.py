@@ -3,7 +3,7 @@ Code with Destiny - Book Purchase Backend
 Production-level Flask API for Razorpay payment processing
 """
 
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 import razorpay
 import os
@@ -26,7 +26,7 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# ✅ ENHANCED CORS Configuration - More robust
+# ✅ CORS Configuration - Simple and clean
 CORS(app,
     resources={r"/api/*": {
         "origins": [
@@ -46,40 +46,13 @@ CORS(app,
     intercept_exceptions=False
 )
 
-# ✅ Additional CORS headers for all responses
-@app.after_request
-def after_request(response):
-    origin = request.headers.get('Origin')
-    allowed_origins = [
-        "https://destinycode.netlify.app",
-        "http://localhost:3000",
-        "http://localhost:5000",
-        "http://localhost:3002",
-        "https://piyush-joshi1.github.io"
-    ]
-    
-    if origin in allowed_origins:
-        response.headers.add('Access-Control-Allow-Origin', origin)
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
-        response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-        response.headers.add('Access-Control-Expose-Headers', 'Content-Type')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-    
-    return response
-
-# ✅ Handle preflight requests (OPTIONS)
+# ✅ Handle preflight requests (OPTIONS) - Simple approach
 @app.before_request
 def handle_preflight():
     if request.method == 'OPTIONS':
-        response = make_response('', 204)
-        response.headers.add('Access-Control-Allow-Origin', request.headers.get('Origin', '*'))
-        response.headers.add('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
-        response.headers.add('Access-Control-Allow-Credentials', 'true')
-        response.headers.add('Access-Control-Max-Age', '86400')
-        return response
+        return '', 200  # Flask-CORS handles headers, just return 200
 
-# Add request logging
+# Add request logging (skip OPTIONS)
 @app.before_request
 def log_request():
     if request.method != 'OPTIONS':
