@@ -31,7 +31,7 @@ CORS(app,
     resources={
         r"/api/*": {
             "origins": [
-                "https://destinycode4u.vercel.app",  # ✅ ADD THIS - Your new Vercel URL
+                "https://destinycode4u.netlify.app",  # ✅ ADD THIS - Your new Vercel URL
                 "https://destinycode.netlify.app",   # Keep old one if still needed
                 "http://localhost:3000",
                 "http://localhost:5000",
@@ -556,3 +556,4 @@ if __name__ == '__main__':
     print(f'🔑 Razorpay Key ID: {os.getenv("RAZORPAY_KEY_ID")}')
     print('💻 Server running on http://localhost:5000')
     app.run(debug=True, host='0.0.0.0', port=5000)
+
