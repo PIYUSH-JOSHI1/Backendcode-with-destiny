@@ -31,7 +31,7 @@ app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-pro
 CORS(app,
     resources={r"/api/*": {
         "origins": [
-            "https://destinycode4u.vercel.app/",
+            "https://destinycode4u.vercel.app",
             "http://localhost:3000",
             "http://localhost:5000",
             "http://localhost:3002",
@@ -52,7 +52,7 @@ CORS(app,
 def after_request(response):
     origin = request.headers.get('Origin')
     allowed_origins = [
-        "https://destinycode4u.vercel.app/",
+        "https://destinycode4u.vercel.app",
         "http://localhost:3000",
         "http://localhost:5000",
         "http://localhost:3002",
@@ -633,4 +633,5 @@ if __name__ == '__main__':
     print(f'🔑 Razorpay Key ID: {os.getenv("RAZORPAY_KEY_ID")}')
     print('💻 Server running on http://localhost:5000')
     app.run(debug=True, host='0.0.0.0', port=5000)
+
 
