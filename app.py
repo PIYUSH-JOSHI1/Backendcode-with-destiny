@@ -18,6 +18,7 @@ import sqlite3
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import threading  # ✅ ADDED: For async email sending
 
 # Load environment variables
 load_dotenv()
@@ -57,12 +58,16 @@ def add_cors_headers(response):
         "https://piyush-joshi1.github.io"
     ]
     
+    # Always add CORS headers for allowed origins
     if origin in allowed_origins:
         response.headers['Access-Control-Allow-Origin'] = origin
-        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
         response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
         response.headers['Access-Control-Expose-Headers'] = 'Content-Type'
         response.headers['Access-Control-Max-Age'] = '3600'
+        print(f'✅ CORS headers added for origin: {origin}')
+    else:
+        print(f'⚠️ CORS blocked for origin: {origin}')
     
     return response
 
@@ -237,8 +242,9 @@ def send_email(recipient_email, subject, message, drive_link=None):
         part = MIMEText(html_body, 'html')
         msg.attach(part)
         
-        # Send email via Gmail SMTP
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+        # ✅ FIXED: Add timeout to prevent hanging
+        print(f'📧 Attempting to send email to: {recipient_email}')
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10) as server:
             server.login(sender_email, sender_password)
             server.send_message(msg)
         
@@ -422,23 +428,34 @@ def verify_payment():
             order = get_order(our_order_id)
             
             if order:
-                # Google Drive link to your book
-                drive_link = os.getenv('BOOK_DRIVE_LINK', 'https://drive.google.com/file/d/1lBH-fdCcyfp6_ZUpph6nviZklm5d3Mwt/view?usp=drive_link')
+                # ✅ FIXED: Send email asynchronously to prevent timeout
+                def send_email_async():
+                    try:
+                        # Google Drive link to your book
+                        drive_link = os.getenv('BOOK_DRIVE_LINK', 'https://drive.google.com/file/d/1lBH-fdCcyfp6_ZUpph6nviZklm5d3Mwt/view?usp=drive_link')
+                        
+                        # Send confirmation email with drive link
+                        email_subject = '🎉 Code with Destiny - Your Book is Ready!'
+                        email_message = f'''
+                        Thank you {order['user_name']} for purchasing "Code with Destiny"!
+                        
+                        Payment Details:
+                        - Order ID: {our_order_id}
+                        - Amount: ₹{order['amount']}
+                        - Payment ID: {razorpay_payment_id}
+                        - Status: ✅ PAID
+                        '''
+                        
+                        send_email(order['user_email'], email_subject, email_message, drive_link=drive_link)
+                        print(f'✅ Email sent asynchronously for order {our_order_id}')
+                    except Exception as e:
+                        print(f'❌ Async email error: {e}')
                 
-                # Send confirmation email with drive link
-                email_subject = '🎉 Code with Destiny - Your Book is Ready!'
-                email_message = f'''
-                Thank you {order['user_name']} for purchasing "Code with Destiny"!
-                
-                Payment Details:
-                - Order ID: {our_order_id}
-                - Amount: ₹{order['amount']}
-                - Payment ID: {razorpay_payment_id}
-                - Status: ✅ PAID
-                '''
-                
-                send_email(order['user_email'], email_subject, email_message, drive_link=drive_link)
+                # Start email sending in background thread (non-blocking)
+                email_thread = threading.Thread(target=send_email_async, daemon=True)
+                email_thread.start()
             
+            # ✅ FIXED: Return response immediately (don't wait for email)
             return jsonify({
                 'status': 'success',
                 'message': 'Payment verified successfully',
