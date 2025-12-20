@@ -37,13 +37,34 @@ CORS(app,
                 "https://piyush-joshi1.github.io"
             ],
             "methods": ["GET", "POST", "OPTIONS"],
-            "allow_headers": ["Content-Type"],
+            "allow_headers": ["Content-Type", "Authorization"],
+            "expose_headers": ["Content-Type", "Access-Control-Allow-Origin"],
             "supports_credentials": True,
             "max_age": 3600
         }
-    },
-    expose_headers=["Content-Type"]
+    }
 )
+
+# ✅ FIXED: Add explicit CORS response headers middleware
+@app.after_request
+def add_cors_headers(response):
+    """Add CORS headers to all responses"""
+    origin = request.headers.get('Origin')
+    allowed_origins = [
+        "https://destinycode4u.netlify.app",
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "https://piyush-joshi1.github.io"
+    ]
+    
+    if origin in allowed_origins:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        response.headers['Access-Control-Expose-Headers'] = 'Content-Type'
+        response.headers['Access-Control-Max-Age'] = '3600'
+    
+    return response
 
 # Initialize Razorpay client
 razorpay_client = razorpay.Client(
@@ -241,16 +262,19 @@ def home():
         'version': '1.0.0'
     })
 
-@app.route('/api/health', methods=['GET'])
+@app.route('/api/health', methods=['GET', 'OPTIONS'])
 def health_check():
     """API health check"""
+    if request.method == 'OPTIONS':
+        return '', 204
+    
     return jsonify({
         'status': 'success',
         'message': 'API is running',
         'timestamp': datetime.now().isoformat()
     })
 
-@app.route('/api/orders/create', methods=['POST'])
+@app.route('/api/orders/create', methods=['POST', 'OPTIONS'])
 def create_order():
     """
     Create a new Razorpay order
@@ -263,6 +287,8 @@ def create_order():
         "amount": 99
     }
     """
+    if request.method == 'OPTIONS':
+        return '', 204
     try:
         data = request.get_json()
         
@@ -351,7 +377,7 @@ def create_order():
             'message': f'Server error: {str(e)}'
         }), 500
 
-@app.route('/api/payments/verify', methods=['POST'])
+@app.route('/api/payments/verify', methods=['POST', 'OPTIONS'])
 def verify_payment():
     """
     Verify Razorpay payment signature
@@ -364,6 +390,8 @@ def verify_payment():
         "order_id": "our_order_id"
     }
     """
+    if request.method == 'OPTIONS':
+        return '', 204
     try:
         data = request.get_json()
         
@@ -431,9 +459,11 @@ def verify_payment():
             'message': f'Verification error: {str(e)}'
         }), 500
 
-@app.route('/api/orders/<order_id>', methods=['GET'])
+@app.route('/api/orders/<order_id>', methods=['GET', 'OPTIONS'])
 def get_order_details(order_id):
     """Get order details"""
+    if request.method == 'OPTIONS':
+        return '', 204
     try:
         order = get_order(order_id)
         
@@ -462,7 +492,7 @@ def get_order_details(order_id):
             'message': f'Error: {str(e)}'
         }), 500
 
-@app.route('/api/send-book', methods=['POST'])
+@app.route('/api/send-book', methods=['POST', 'OPTIONS'])
 def send_book():
     """
     Send book to user (called after successful payment or free purchase)
@@ -473,6 +503,8 @@ def send_book():
         "email": "user@email.com"
     }
     """
+    if request.method == 'OPTIONS':
+        return '', 204
     try:
         data = request.get_json()
         order_id = data.get('order_id')
